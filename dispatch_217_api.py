@@ -91,6 +91,16 @@ def load_credentials() -> tuple[str, str]:
     if username and password:
         return username, password
 
+    try:
+        import streamlit as st
+
+        username = st.secrets.get("UNIUNI_USER")
+        password = st.secrets.get("UNIUNI_PASS")
+        if username and password:
+            return str(username), str(password)
+    except Exception:
+        pass
+
     if not AUTO_JUMP_PATH.exists():
         raise FileNotFoundError(
             "Missing credentials. Set UNIUNI_USER and UNIUNI_PASS environment variables."
