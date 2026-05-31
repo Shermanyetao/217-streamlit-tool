@@ -84,6 +84,18 @@ class DispatchApi:
             },
         )
 
+    def multiple_search_by_tno(self, orders: list[str], page_size: int = 1000) -> dict:
+        return self.request(
+            "/map/multiplesearch",
+            method="POST",
+            payload={
+                "search_type": "tno",
+                "tno": orders,
+                "page": 1,
+                "pageSize": page_size,
+            },
+        )
+
 
 def load_credentials() -> tuple[str, str]:
     username = os.getenv("UNIUNI_USER")

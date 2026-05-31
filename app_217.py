@@ -55,6 +55,63 @@ def parse_uploaded_file(uploaded_file, api_module) -> list[str]:
         temp_path.unlink(missing_ok=True)
 
 
+def extract_search_rows(response: dict) -> list[dict]:
+    data = response.get("data") or {}
+    if isinstance(data, list):
+        return data
+    rows = data.get("data")
+    if isinstance(rows, list):
+        return rows
+    return []
+
+
+def get_tno(row: dict) -> str:
+    for key in ["tno", "trackingNo", "tracking_no"]:
+        value = row.get(key)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def get_status(row: dict) -> str:
+    for key in ["latest_status", "state", "status"]:
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def precheck_204_orders(api, api_module, orders: list[str], batch_size: int) -> tuple[list[str], list[dict], list[str], list[dict]]:
+    rows_by_tno = {}
+    query_responses = []
+    for chunk in api_module.chunks(orders, batch_size):
+        response = api.multiple_search_by_tno(chunk, page_size=max(len(chunk), 20))
+        query_responses.append(response)
+        for row in extract_search_rows(response):
+            tno = get_tno(row)
+            if tno:
+                rows_by_tno[tno.upper()] = row
+
+    eligible = []
+    skipped = []
+    not_found = []
+    for order in orders:
+        row = rows_by_tno.get(order.upper())
+        if not row:
+            not_found.append(order)
+            continue
+        status = get_status(row)
+        if status == "204":
+            eligible.append(order)
+        else:
+            skipped.append({
+                "tno": order,
+                "status": status or "UNKNOWN",
+                "reason": "not_204",
+            })
+    return eligible, skipped, not_found, query_responses
+
+
 def run_update(api_module, orders: list[str], warehouse_id: str, batch_size: int, batch_number: str) -> dict:
     username, password = api_module.load_credentials()
     api = api_module.DispatchApi()
@@ -69,7 +126,15 @@ def run_update(api_module, orders: list[str], warehouse_id: str, batch_size: int
     failed_tnos = []
     not_found_tnos = []
 
-    for chunk_index, chunk in enumerate(api_module.chunks(orders, batch_size), start=1):
+    eligible_orders, skipped_status, precheck_not_found, precheck_responses = precheck_204_orders(
+        api,
+        api_module,
+        orders,
+        batch_size,
+    )
+    not_found_tnos.extend(precheck_not_found)
+
+    for chunk_index, chunk in enumerate(api_module.chunks(eligible_orders, batch_size), start=1):
         response = api.update_orders_to_217(
             chunk,
             warehouse_id=final_warehouse_id,
@@ -98,6 +163,9 @@ def run_update(api_module, orders: list[str], warehouse_id: str, batch_size: int
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "warehouse_id": final_warehouse_id,
         "orders_count": len(orders),
+        "eligible_204_count": len(eligible_orders),
+        "skipped_status": skipped_status,
+        "precheck_responses": precheck_responses,
         "total_updated": total_updated,
         "succeed_tnos": succeed_tnos,
         "failed_tnos": failed_tnos,
@@ -108,11 +176,12 @@ def run_update(api_module, orders: list[str], warehouse_id: str, batch_size: int
 
 def render_result(result: dict) -> None:
     st.subheader("结果")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("输入单数", result["orders_count"])
-    c2.metric("已更新", result["total_updated"])
-    c3.metric("失败", len(result["failed_tnos"]))
-    c4.metric("找不到", len(result["not_found_tnos"]))
+    c2.metric("204 可转", result.get("eligible_204_count", result["orders_count"]))
+    c3.metric("已更新", result["total_updated"])
+    c4.metric("跳过非 204", len(result.get("skipped_status", [])))
+    c5.metric("找不到", len(result["not_found_tnos"]))
 
     st.write("批次结果")
     st.dataframe([
@@ -126,6 +195,9 @@ def render_result(result: dict) -> None:
     if result["not_found_tnos"]:
         st.warning("Not Found")
         st.code("\n".join(result["not_found_tnos"]))
+    if result.get("skipped_status"):
+        st.warning("Skipped: status is not 204")
+        st.dataframe(result["skipped_status"], use_container_width=True)
     if result["succeed_tnos"]:
         st.success("Succeed")
         st.code("\n".join(result["succeed_tnos"][:200]))
@@ -134,12 +206,15 @@ def render_result(result: dict) -> None:
         f"timestamp={result['timestamp']}\n"
         f"warehouse_id={result['warehouse_id']}\n"
         f"orders={result['orders_count']}\n"
+        f"eligible_204_count={result.get('eligible_204_count', result['orders_count'])}\n"
         f"total_updated={result['total_updated']}\n"
         f"succeed_count={len(result['succeed_tnos'])}\n"
         f"failed_count={len(result['failed_tnos'])}\n"
         f"not_found_count={len(result['not_found_tnos'])}\n"
+        f"skipped_not_204_count={len(result.get('skipped_status', []))}\n"
         f"failed_sample={result['failed_tnos'][:20]}\n"
         f"not_found_sample={result['not_found_tnos'][:20]}\n"
+        f"skipped_not_204_sample={result.get('skipped_status', [])[:20]}\n"
     )
     st.download_button("下载 summary.txt", summary, file_name="217_summary.txt")
     st.download_button(
