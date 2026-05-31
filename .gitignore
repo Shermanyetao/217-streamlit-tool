@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.log
+.DS_Store
+.streamlit/secrets.toml
+
+# Local business data and generated analysis outputs are not needed for deployment.
+*.xlsx
+*.xls
+*.xlsm
+*.twb
+outputs/
+.idea/
