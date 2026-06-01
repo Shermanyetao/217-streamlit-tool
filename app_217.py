@@ -75,6 +75,21 @@ def get_last_page(response: dict) -> int:
         return 1
 
 
+def search_tno_page(api, orders: list[str], page_size: int, page: int) -> dict:
+    if hasattr(api, "request"):
+        return api.request(
+            "/map/multiplesearch",
+            method="POST",
+            payload={
+                "search_type": "tno",
+                "tno": orders,
+                "page": page,
+                "pageSize": page_size,
+            },
+        )
+    return api.multiple_search_by_tno(orders, page_size=page_size, page=page)
+
+
 def get_tno(row: dict) -> str:
     for key in ["tno", "trackingNo", "tracking_no"]:
         value = row.get(key)
@@ -99,7 +114,7 @@ def precheck_204_orders(api, api_module, orders: list[str], batch_size: int) -> 
         page = 1
         last_page = 1
         while page <= last_page:
-            response = api.multiple_search_by_tno(chunk, page_size=page_size, page=page)
+            response = search_tno_page(api, chunk, page_size=page_size, page=page)
             query_responses.append(response)
             last_page = get_last_page(response)
             for row in extract_search_rows(response):
