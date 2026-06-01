@@ -84,14 +84,19 @@ class DispatchApi:
             },
         )
 
-    def multiple_search_by_tno(self, orders: list[str], page_size: int = 1000) -> dict:
+    def multiple_search_by_tno(
+        self,
+        orders: list[str],
+        page_size: int = 1000,
+        page: int = 1,
+    ) -> dict:
         return self.request(
             "/map/multiplesearch",
             method="POST",
             payload={
                 "search_type": "tno",
                 "tno": orders,
-                "page": 1,
+                "page": page,
                 "pageSize": page_size,
             },
         )

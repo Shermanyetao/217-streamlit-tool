@@ -65,6 +65,16 @@ def extract_search_rows(response: dict) -> list[dict]:
     return []
 
 
+def get_last_page(response: dict) -> int:
+    data = response.get("data") or {}
+    if not isinstance(data, dict):
+        return 1
+    try:
+        return max(int(data.get("last_page") or 1), 1)
+    except (TypeError, ValueError):
+        return 1
+
+
 def get_tno(row: dict) -> str:
     for key in ["tno", "trackingNo", "tracking_no"]:
         value = row.get(key)
@@ -85,12 +95,18 @@ def precheck_204_orders(api, api_module, orders: list[str], batch_size: int) -> 
     rows_by_tno = {}
     query_responses = []
     for chunk in api_module.chunks(orders, batch_size):
-        response = api.multiple_search_by_tno(chunk, page_size=max(len(chunk), 20))
-        query_responses.append(response)
-        for row in extract_search_rows(response):
-            tno = get_tno(row)
-            if tno:
-                rows_by_tno[tno.upper()] = row
+        page_size = max(len(chunk), 20)
+        page = 1
+        last_page = 1
+        while page <= last_page:
+            response = api.multiple_search_by_tno(chunk, page_size=page_size, page=page)
+            query_responses.append(response)
+            last_page = get_last_page(response)
+            for row in extract_search_rows(response):
+                tno = get_tno(row)
+                if tno:
+                    rows_by_tno[tno.upper()] = row
+            page += 1
 
     eligible = []
     skipped = []
